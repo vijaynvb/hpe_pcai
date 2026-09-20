@@ -15,8 +15,8 @@ This folder holds a notebook that proves a notebook server on PCAI can reach a m
 
 1. Prints where the kernel runs (Python version, hostname, working folder).
 2. Installs `langchain-openai`, `langgraph` and `requests` with `%pip`.
-3. Reads the endpoint URLs (and an optional token) from environment variables, or asks for them. The URLs are pre-filled with the lab endpoints `llm-llama8b-1` and `embedder-llama8b-1`; press Enter to accept them.
-4. Asks the endpoint which model it serves (`GET <api root>/models`, trying `<endpoint>/v1` and then `<endpoint>`), then makes one raw `POST` to `<api root>/chat/completions`. A `Bearer` header is sent only if a token was entered.
+3. Reads the endpoint URLs and API tokens from environment variables, or asks for them (tokens with a hidden prompt). The URLs are pre-filled with the lab endpoints `llm-llama8b-1` and `embedder-llama8b-1`; press Enter to accept them. Step 3b then makes Python trust the platform's certificate: your CA file, else the notebook server's system certificates, else, for lab tenants only, verification off.
+4. Asks the endpoint which model it serves (`GET <api root>/models`, trying `<endpoint>/v1` and then `<endpoint>`), then makes one raw `POST` to `<api root>/chat/completions`. The token is sent as an `Authorization: Bearer` header (omitted if no token was entered).
 5. Makes the same call through LangChain (`ChatOpenAI` with a custom `base_url`). MLIS endpoints are OpenAI-compatible, so this class is only the client. The request goes to MLIS, not to OpenAI.
 6. Optionally calls the embedding endpoint at `<api root>/embeddings`, detecting the model the same way.
 7. Runs a two-path LangGraph graph for IT incidents: `classify`, then `escalate` for high severity or `resolve` otherwise. The routing decision is plain code on a value in the state.
@@ -28,7 +28,7 @@ This folder holds a notebook that proves a notebook server on PCAI can reach a m
 1. Sign in to HPE AI Essentials and open **Notebooks**.
 2. Start your notebook server (or create one with JupyterLab and an image that has Python 3.10 or later), then connect.
 3. Upload `pcai_first_notebook.ipynb` through the JupyterLab file browser, or `git clone` this repository from a notebook terminal if the network allows it.
-4. Go to **Gen AI, Model Endpoints**. Check that the endpoints you need show **Ready**, and copy the **Endpoint** value (an endpoint that is still **Deploying** has no URL). No model name is needed: the notebook detects it. Create a token only if your endpoint requires one.
+4. Go to **Gen AI, Model Endpoints**. Check that the endpoints you need show **Ready**, and copy the **Endpoint** value (an endpoint that is still **Deploying** has no URL). No model name is needed: the notebook detects it. Open the endpoint: if **Authentication** is **Yes**, click **Generate API Token** under *API Token Management* and copy the token when it is shown. Each endpoint has its own tokens.
 5. Open the notebook, choose the **Python 3** kernel, and run each cell with `Shift + Enter`. Enter the values when prompted.
 6. When finished, stop the notebook server from the Notebook Servers screen.
 
@@ -42,10 +42,12 @@ Each setting is read from an environment variable if that variable exists. Other
 |---|---|---|
 | `MLIS_LLM_BASE_URL` | No | Endpoint of the LLM. Default: the lab `llm-llama8b-1` endpoint. A trailing `/chat/completions` is trimmed, and `/v1` is added automatically when the endpoint needs it. |
 | `MLIS_LLM_MODEL` | No | Model name. Empty means detect it from `GET /models`. Set it to force one model when an endpoint serves several. |
-| `MLIS_DEPLOY_TOKEN` | No | Token, sent as `Authorization: Bearer <token>`. Empty means no header is sent (the lab endpoints need none). |
+| `MLIS_DEPLOY_TOKEN` | Yes, if the endpoint shows Authentication: Yes | API token for the LLM endpoint, sent as `Authorization: Bearer <token>`. Empty means no header is sent. |
 | `MLIS_EMB_BASE_URL` | No | Endpoint of the embedding model. Default: the lab `embedder-llama8b-1` endpoint. Set it to an empty value (or type `skip` at the prompt) to skip Step 6. |
 | `MLIS_EMB_MODEL` | No | Embedding model name. Empty means detect it. |
-| `MLIS_EMB_TOKEN` | No | Embedding token. Unset means reuse the LLM token. |
+| `MLIS_EMB_TOKEN` | If the embedding endpoint needs one | API token for the embedding endpoint. Unset means the notebook asks; empty means reuse the LLM token. |
+| `MLIS_CA_BUNDLE` | No | Path to a PEM/CRT file with the platform's certificate authority (Step 3b). Recommended when Python reports `CERTIFICATE_VERIFY_FAILED`. |
+| `MLIS_VERIFY_SSL` | No | `false` switches certificate verification off. Lab or training tenants only: the token could be sent to an impostor. Default `true`. |
 
 The defaults in the notebook (`DEFAULT_LLM_URL`, `DEFAULT_EMB_URL` in Step 3) point at the endpoints in namespace `project-user-kiran-kumar-m`. Edit them, or set the variables, to use another namespace.
 
@@ -55,7 +57,8 @@ Useful for a health check before a session. Run in a terminal where `jupyter nbc
 
 ```bash
 export MLIS_LLM_BASE_URL="<endpoint URL>"
-export MLIS_DEPLOY_TOKEN=""        # or: read -s -p "Token: " MLIS_DEPLOY_TOKEN; export MLIS_DEPLOY_TOKEN; echo
+read -s -p "API token: " MLIS_DEPLOY_TOKEN; export MLIS_DEPLOY_TOKEN; echo
+export MLIS_CA_BUNDLE="<path to CA file>"   # or: export MLIS_VERIFY_SSL=false (lab only)
 export MLIS_EMB_BASE_URL=""        # empty skips the embedding step; or set the embedding endpoint URL
 
 jupyter nbconvert --to notebook --execute pcai_first_notebook.ipynb \
@@ -80,18 +83,19 @@ jupyter lab
 
 | What you see | Likely cause | What to do |
 |---|---|---|
-| `HTTP 401` or `403` | The endpoint requires a token, or the token is wrong or expired | Enter a valid token in Step 3. |
+| `HTTP 401` or `403` | No token, a wrong token, or an expired one. The endpoint page shows **Authentication: Yes** | Click **Generate API Token** on the endpoint page and enter it in Step 3. |
 | `HTTP 404`, or "Could not reach the endpoint" | Wrong URL, or the endpoint is not Ready | Copy the **Endpoint** value again from Gen AI, Model Endpoints. The notebook already tries `/v1` for you. |
 | "listed no models" | The endpoint does not implement `GET /models` | Set `MLIS_LLM_MODEL` (or `MLIS_EMB_MODEL`) to the model name. |
 | `HTTP 502`, `503` or a timeout | Deployment starting, scaled to zero, or busy | Check its status in MLIS, wait and retry. |
-| SSL or certificate error | Internal certificate authority not trusted by Python | Get the CA file from your administrator and set `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` before Step 4. |
+| `CERTIFICATE_VERIFY_FAILED`, "unable to get local issuer certificate" | The platform's internal certificate authority is not trusted by Python. This happens before any HTTP request, so it is not a token problem. | Step 3b: set `CA_BUNDLE` (or `MLIS_CA_BUNDLE`) to the CA file from your administrator. In a lab tenant only, `VERIFY_SSL = False` works. Then re-run from Step 3b. |
 | `ModuleNotFoundError` | Kernel restarted, so `%pip` installs in the base environment were removed | Re-run Step 2, restart the kernel, continue. |
 | Answer contains `<think>` text | Reasoning model such as Qwen3 | Already handled by `strip_reasoning`. |
 
 ## Status
 
 - Tested end to end against a local mock server that imitates a NIM-style MLIS endpoint (API only under `/v1`, root returns 404), covering: no token, a required token, a wrong token, a URL pasted with `/v1/chat/completions`, model auto-detection, and a dead URL. Versions used: Python 3.11, `langgraph` and `langchain-openai` current at the time of testing.
-- **Not yet run against the real `llm-llama8b-1` and `embedder-llama8b-1` endpoints.** Do one dry run from a notebook server before class. Two assumptions to confirm: the endpoints answer `GET /v1/models` and `POST /v1/chat/completions` without a token, and their certificate is trusted by the notebook image (see Troubleshooting).
+- Also tested against an HTTPS mock signed by a private CA: the notebook reproduces `unable to get local issuer certificate` without Step 3b, and runs end to end with `CA_BUNDLE`, with the CA in the system store, and with `VERIFY_SSL = False`.
+- A first run against the real `llm-llama8b-1` endpoint reached the certificate error above. Not yet confirmed after the Step 3b fix: that the endpoint answers `GET /v1/models` and `POST /v1/chat/completions` with the API token. Note that `llm-llama8b-1` reports its model as `meta/llama-3.2-1b-instruct`; a 1B model can misjudge incident severity in Step 7.
 - The notebook installs unpinned package versions. Pin them in your notebook image before a class.
 
 ## Keep secrets and outputs out of Git
