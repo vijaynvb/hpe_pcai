@@ -46,7 +46,7 @@ Each setting is read from an environment variable if that variable exists. Other
 | `MLIS_EMB_BASE_URL` | No | Endpoint of the embedding model. Default: the lab `embedder-llama8b-1` endpoint. Set it to an empty value (or type `skip` at the prompt) to skip Step 6. |
 | `MLIS_EMB_MODEL` | No | Embedding model name. Empty means detect it. |
 | `MLIS_EMB_TOKEN` | If the embedding endpoint needs one | API token for the embedding endpoint. Unset means the notebook asks; empty means reuse the LLM token. |
-| `MLIS_CA_BUNDLE` | No | Path to a PEM/CRT file with the platform's certificate authority (Step 3b). Recommended when Python reports `CERTIFICATE_VERIFY_FAILED`. |
+| `MLIS_CA_BUNDLE` | No | Path to a PEM/CRT file with the platform's certificate authority (Step 3b). Recommended when Python reports `CERTIFICATE_VERIFY_FAILED`. If unset, a file named `pcai-ca.pem` or `pcai-ca.crt` next to the notebook is used automatically. Give it the full chain (intermediate and root CA). |
 | `MLIS_VERIFY_SSL` | No | `false` switches certificate verification off. Lab or training tenants only: the token could be sent to an impostor. Default `true`. |
 
 The defaults in the notebook (`DEFAULT_LLM_URL`, `DEFAULT_EMB_URL` in Step 3) point at the endpoints in namespace `project-user-kiran-kumar-m`. Edit them, or set the variables, to use another namespace.
@@ -87,7 +87,7 @@ jupyter lab
 | `HTTP 404`, or "Could not reach the endpoint" | Wrong URL, or the endpoint is not Ready | Copy the **Endpoint** value again from Gen AI, Model Endpoints. The notebook already tries `/v1` for you. |
 | "listed no models" | The endpoint does not implement `GET /models` | Set `MLIS_LLM_MODEL` (or `MLIS_EMB_MODEL`) to the model name. |
 | `HTTP 502`, `503` or a timeout | Deployment starting, scaled to zero, or busy | Check its status in MLIS, wait and retry. |
-| `CERTIFICATE_VERIFY_FAILED`, "unable to get local issuer certificate" | The platform's internal certificate authority is not trusted by Python. This happens before any HTTP request, so it is not a token problem. | Step 3b: set `CA_BUNDLE` (or `MLIS_CA_BUNDLE`) to the CA file from your administrator. In a lab tenant only, `VERIFY_SSL = False` works. Then re-run from Step 3b. |
+| `CERTIFICATE_VERIFY_FAILED`, "unable to get local issuer certificate" | The platform's internal certificate authority is not trusted by Python. This happens before any HTTP request, so it is not a token problem. | Step 3b stops with a message until you choose: drop the CA file next to the notebook as `pcai-ca.pem` (or set `CA_BUNDLE`), or in a lab tenant only set `VERIFY_SSL = False`. Then re-run Step 3b. |
 | `ModuleNotFoundError` | Kernel restarted, so `%pip` installs in the base environment were removed | Re-run Step 2, restart the kernel, continue. |
 | Answer contains `<think>` text | Reasoning model such as Qwen3 | Already handled by `strip_reasoning`. |
 
